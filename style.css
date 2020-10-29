@@ -4,11 +4,28 @@ body {
   }
   
   canvas {
-    background: linear-gradient(45deg, #0d1011 0% 20%, #163486);
+    /* background: linear-gradient(45deg, #0d1011 0% 20%, #163486); */
     /* #861625 */
     margin: 0;
     padding: 0;
     border: none;
+    position: absolute;
+    z-index: 11;
+    left: 40px;
+    top: 30px;
+  }
+
+  video {
+    background-size: cover;
+    height: 480px;
+    width: 640px;
+    display: block;
+    object-fit: cover;
+    z-index: 10;
+    position: absolute;
+    /* transform: scaleX(-1); */
+    left: 40px;
+    top: 30px;
   }
   
   #hero-text {

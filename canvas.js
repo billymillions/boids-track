@@ -1,23 +1,30 @@
 const cvs = document.querySelector('canvas');
 const c = cvs.getContext('2d');
+let model = null;
+let detecting = false;
 
-cvs.width = window.innerWidth;
-cvs.height = window.innerHeight;
+// cvs.width = window.innerWidth;
+// cvs.height = window.innerHeight;
 
-window.addEventListener('resize', function () {
-  cvs.width = window.innerWidth;
-  cvs.height = window.innerHeight;
-});
+// window.addEventListener('resize', function () {
+//   cvs.width = window.innerWidth;
+//   cvs.height = window.innerHeight;
+// });
 
 let mouse = {
   x: undefined,
   y: undefined
 };
 
-window.addEventListener('mousemove', function (e) {
-  mouse.x = event.x;
-  mouse.y = event.y;
-});
+let mouseTarget = {
+  x: undefined,
+  y: undefined,
+}
+
+// window.addEventListener('mousemove', function (e) {
+//   mouse.x = e.x;
+//   mouse.y = e.y;
+// });
 
 class Vector {
   constructor(x, y) {
@@ -29,35 +36,53 @@ class Vector {
   }
 
   op = (fn, v) => {
-    x = fn(this.x, v.x);
+    let x = fn(this.x, v.x);
     let y = fn(this.x, v.y);
-    return Vector(x, y);
+    return new Vector(x, y);
   }
 
-  multiply = (a) => {
-    this.x *= a;
-    this.y *= a;
-    return this;
+  mult = (a) => {
+    return new Vector(this.x * a, this.y * a);
+  }
+
+  div = (a) => {
+    return this.mult(1 / a);
+  }
+
+  add = (v) => {
+    return new Vector(this.x + v.x, this.y + v.y);
+  }
+
+  sub = (v) => {
+    return new Vector(this.x - v.x, this.y - v.y)
+  }
+  magnitude = () => {
+    return Math.sqrt(this.x * this.x + this.y * this.y);
   }
 
   normalize = () => {
-    var magnitude = Math.sqrt(this.x * this.x + this.y * this.y);
-    if (magnitude > 0) {
-      this.x /= magnitude;
-      this.y /= magnitude;
+    let m = this.magnitude();
+    if (m > 0) {
+      this.x /= m;
+      this.y /= m;
     }
     return this;
   }
 }
 
 
-const visualRange = 40;
-const maxSpeed = 100;
-const attraction = 0.05;
-const avoidance = 0.5;
-const alignment = 0.5;
-const bounding = 0.5;
-const minDistance = 20;
+let visualRange = 100;
+let maxSpeed = 100;
+let attraction = 30;
+let avoidance = 10;
+let alignment = 5;
+let noise = .5;
+let bounding = 5;
+let handling = 2;
+let minDistance = 20;
+
+let scattering = 50;
+let scatterRange = 100;
 
 function distance(v1, v2) {
   return Math.sqrt((v1.x - v2.x) * (v1.x - v2.x) + (v1.y - v2.y) * (v1.y - v2.y));
@@ -72,11 +97,17 @@ class Boid {
   }
 
   update = (boids, delta) => {
-    var newV = this.velocity.clone();
-    this.attract(boids, delta);
-    this.avoid(boids, delta);
-    this.align(boids, delta);
-    this.bounds(delta);
+    let newV = this.velocity.clone();
+    let attractV = this.attract(boids, delta).mult(attraction);
+    let avoidV = this.avoid(boids, delta).mult(avoidance);
+    let alignV = this.align(boids, delta).mult(alignment);
+    let noiseV = this.addNoise().mult(noise);
+    let boundsV = this.keepInBounds().mult(bounding);
+    let scatterV = this.scatter().mult(scattering);
+    let deltaV = attractV.add(avoidV).add(alignV).add(noiseV).add(boundsV).add(scatterV);
+    deltaV = deltaV.mult(delta * handling)
+
+    this.velocity = this.velocity.add(deltaV);
     this.limit();
 
     this.position.x += this.velocity.x * delta;
@@ -87,77 +118,93 @@ class Boid {
     let centerX = 0;
     let centerY = 0;
     let numNeighbors = 0;
+    let center = new Vector(0, 0);
   
     for (let otherBoid of boids) {
-      if (distance(this.position, otherBoid.position) < visualRange) {
-        centerX += otherBoid.position.x;
-        centerY += otherBoid.position.y;
-        numNeighbors += 1;
+      let d = distance(this.position, otherBoid.position)
+      if (d < visualRange) {
+        // let weight = d / visualRange;
+        // center = center.add(otherBoid.position);
+        // numNeighbors += 1;
+        let weight = Math.pow(1 - d / visualRange, 1  );
+        center = center.add(otherBoid.position.sub(this.position).normalize().mult(weight));
+        numNeighbors += weight;
       }
     }
   
-    if (numNeighbors) {
-      centerX = centerX / numNeighbors;
-      centerY = centerY / numNeighbors;
-  
-      this.velocity.x += (centerX - this.position.x) * attraction * delta;
-      this.velocity.y += (centerY - this.position.y) * attraction * delta;
-    }
+    return center.div(numNeighbors);
+    // return center;
   }
 
   avoid = (boids, delta) => {
-    let moveX = 0;
-    let moveY = 0;
+    let avoidV = new Vector(0, 0);
     for (let otherBoid of boids) {
       if (otherBoid !== this) {
         if (distance(this.position, otherBoid.position) < minDistance) {
-          moveX += this.position.x - otherBoid.position.x;
-          moveY += this.position.y - otherBoid.position.y;
+          let v = this.position.sub(otherBoid.position);
+          v = v.normalize().mult(minDistance - v.magnitude());
+          avoidV = avoidV.add(v);
         }
       }
     }
-  
-    this.velocity.x += moveX * avoidance * delta;
-    this.velocity.y += moveY * avoidance * delta;
+    return avoidV;
+  }
+
+  scatter = () => {
+    let pos = new Vector(mouse.x, mouse.y);
+    let d = distance(this.position, mouse);
+    if (d < scatterRange) {
+      let weight = Math.pow(1 - d / visualRange, 2);
+      return this.position.sub(mouse).mult(weight);
+    }
+    return new Vector(0, 0);
   }
 
   align = (boids, delta) => {
     let avgVX = 0;
     let avgVY = 0;
     let numNeighbors = 0;
+
+    let meanV = new Vector(0, 0);
+    var deltaV = new Vector(0, 0);
   
     for (let otherBoid of boids) {
-      if (distance(this.position, otherBoid.position) < visualRange) {
-        avgVX += otherBoid.velocity.x;
-        avgVY += otherBoid.velocity.y;
-        numNeighbors += 1;
+      let d = distance(this.position, otherBoid.position);
+      if (d < visualRange) {
+        let weight = Math.pow((visualRange - d) / visualRange, 2);
+        meanV = meanV.add(otherBoid.velocity.mult(weight));
+        numNeighbors += weight;
       }
     }
   
     if (numNeighbors) {
-      avgVX = avgVX / numNeighbors;
-      avgVY = avgVY / numNeighbors;
-  
-      this.velocity.x += (avgVX - this.velocity.x) * alignment * delta;
-      this.velocity.y += (avgVY - this.velocity.y) * alignment * delta;
+      return meanV.div(numNeighbors).sub(this.velocity);
     }
+    return new Vector(0,0);
   }
 
-  bounds = (delta) => {
+  addNoise = () => {
+    let v = new Vector(Math.random() - .5, Math.random() - .5);
+    return v.normalize().mult(this.velocity.magnitude());
+  }
+
+  keepInBounds = (delta) => {
     // TODO:
-    if (this.position.x > window.innerWidth) {
-      this.velocity.x += (window.innerWidth - this.position.x);
+    let vx = 0;
+    let vy = 0;
+    if (this.position.x > cvs.width) {
+      vx = (cvs.width - this.position.x);
     }
-    if (this.position.y > window.innerHeight) {
-      this.velocity.y += (window.innerHeight - this.position.y);
+    if (this.position.y > cvs.height) {
+      vy = (cvs.height - this.position.y);
+    }
+    if (this.position.x < 0) {
+      vx = -this.position.x;
     }
     if (this.position.y < 0) {
-      this.velocity.y -= this.position.y;
+      vy = - this.position.y;
     }
-
-    if (this.position.x < 0) {
-      this.velocity.x -= this.position.x;
-    }
+    return new Vector(vx, vy);
   }
 
   limit = () => {
@@ -195,11 +242,11 @@ const boidsArray = [];
 
 for (let i = 0; i < 100; i++) {
 
-  var v = new Vector((Math.random() - .5), (Math.random() - .5)).normalize().multiply(maxSpeed);
+  var v = new Vector((Math.random() - .5), (Math.random() - .5)).normalize().mult(maxSpeed);
 
   boidsArray.push(
     new Boid(
-      new Vector(Math.random() * window.innerWidth, Math.random()* window.innerHeight),
+      new Vector(Math.random() * cvs.width, Math.random()* cvs.height),
       v
     )
   );
@@ -212,11 +259,57 @@ function animate(timestamp) {
   lastTimestamp = timestamp;
   requestAnimationFrame(animate);
   c.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+  context.beginPath();
+  context.arc(mouse.x, mouse.y, 5, 0, 2 * Math.PI);
+  context.fill();
+
+  mouse.x = ((mouse.x || 0) + mouseTarget.x) / 2;
+  mouse.y = ((mouse.y || 0) + mouseTarget.y) / 2;
+
+  if (model && !detecting) {
+    detecting = true;
+    model.detect(video).then(predictions => {
+      // model.renderPredictions(predictions, canvas, context, video);
+      let score = 0;
+      predictions.forEach((p) =>  {
+          context.beginPath();
+          if (p.score > score) {
+            score = p.score;
+            mouseTarget.x = p.bbox[0] + p.bbox[2] / 2;
+            mouseTarget.y = p.bbox[1] + p.bbox[3] / 2;
+          }
+      });
+      detecting = false;
+    });
+  }
+
   boidsArray.forEach(boid => {
     boid.update(boidsArray, delta);
     boid.draw(c);
   })
 
 };
+
+
+var video = document.querySelector("video");
+var canvas = document.querySelector("canvas");
+var context = canvas.getContext("2d");
+
+const img = document.getElementById('img');
+
+const modelParams = {
+    flipHorizontal: false,   // flip e.g for video  
+    maxNumBoxes: 20,        // maximum number of boxes to detect
+    iouThreshold: 0.5,      // ioU threshold for non-max suppression
+    scoreThreshold: 0.6,    // confidence threshold for predictions.
+}
+
+
+Promise.all([handTrack.startVideo(video), handTrack.load(modelParams)]).then((values) => {
+    model = values[1];
+    // runDetection(model);
+})
+
 
 requestAnimationFrame(animate);
