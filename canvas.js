@@ -1,30 +1,18 @@
 const cvs = document.querySelector('canvas');
 const c = cvs.getContext('2d');
+
 let model = null;
 let detecting = false;
 
-// cvs.width = window.innerWidth;
-// cvs.height = window.innerHeight;
-
-// window.addEventListener('resize', function () {
-//   cvs.width = window.innerWidth;
-//   cvs.height = window.innerHeight;
-// });
-
-let mouse = {
+let cursor = {
   x: undefined,
   y: undefined
 };
 
-let mouseTarget = {
+let cursorTarget = {
   x: undefined,
   y: undefined,
 }
-
-// window.addEventListener('mousemove', function (e) {
-//   mouse.x = e.x;
-//   mouse.y = e.y;
-// });
 
 class Vector {
   constructor(x, y) {
@@ -151,11 +139,11 @@ class Boid {
   }
 
   scatter = () => {
-    let pos = new Vector(mouse.x, mouse.y);
-    let d = distance(this.position, mouse);
+    let pos = new Vector(cursor.x, cursor.y);
+    let d = distance(this.position, cursor);
     if (d < scatterRange) {
       let weight = Math.pow(1 - d / visualRange, 2);
-      return this.position.sub(mouse).mult(weight);
+      return this.position.sub(cursor).mult(weight);
     }
     return new Vector(0, 0);
   }
@@ -254,36 +242,40 @@ for (let i = 0; i < 100; i++) {
 
 let lastTimestamp = null;
 
+// ze Render Loop
 function animate(timestamp) {
   let delta = (lastTimestamp) ? (timestamp - lastTimestamp)/1000 : 0;
   lastTimestamp = timestamp;
   requestAnimationFrame(animate);
   c.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
+
+  // update and draw cursor
+  cursor.x = ((cursor.x || 0) + cursorTarget.x) / 2;
+  cursor.y = ((cursor.y || 0) + cursorTarget.y) / 2;
+
   context.beginPath();
-  context.arc(mouse.x, mouse.y, 5, 0, 2 * Math.PI);
+  context.arc(cursor.x, cursor.y, 5, 0, 2 * Math.PI);
   context.fill();
 
-  mouse.x = ((mouse.x || 0) + mouseTarget.x) / 2;
-  mouse.y = ((mouse.y || 0) + mouseTarget.y) / 2;
-
+  // kick off hand detection in the render loop i suppose
   if (model && !detecting) {
     detecting = true;
     model.detect(video).then(predictions => {
-      // model.renderPredictions(predictions, canvas, context, video);
       let score = 0;
       predictions.forEach((p) =>  {
           context.beginPath();
           if (p.score > score) {
             score = p.score;
-            mouseTarget.x = p.bbox[0] + p.bbox[2] / 2;
-            mouseTarget.y = p.bbox[1] + p.bbox[3] / 2;
+            cursorTarget.x = p.bbox[0] + p.bbox[2] / 2;
+            cursorTarget.y = p.bbox[1] + p.bbox[3] / 2;
           }
       });
       detecting = false;
     });
   }
 
+  // update and draw boids
   boidsArray.forEach(boid => {
     boid.update(boidsArray, delta);
     boid.draw(c);
@@ -299,16 +291,15 @@ var context = canvas.getContext("2d");
 const img = document.getElementById('img');
 
 const modelParams = {
-    flipHorizontal: false,   // flip e.g for video  
-    maxNumBoxes: 20,        // maximum number of boxes to detect
-    iouThreshold: 0.5,      // ioU threshold for non-max suppression
-    scoreThreshold: 0.6,    // confidence threshold for predictions.
+    flipHorizontal: false,  
+    maxNumBoxes: 20,
+    iouThreshold: 0.5,
+    scoreThreshold: 0.6,
 }
 
 
 Promise.all([handTrack.startVideo(video), handTrack.load(modelParams)]).then((values) => {
     model = values[1];
-    // runDetection(model);
 })
 
 

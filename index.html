@@ -10,9 +10,22 @@
 </head>
 
 <body>
-  <canvas height=480 width=640></canvas>
-  <video autoplay="true" id="videoElement">
-	</video>
+
+  <div style="
+    /* height: 100vh; */
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height: 100vh;
+    ">
+    <div style="width:640px;height:480px;position: relative;">
+
+      <canvas height=480 width=640></canvas>
+      <video autoplay="true" id="videoElement">
+      </video>
+    </div>
+  </div>
+  </video>
 </body>
 <script src="handtrack.min.js"></script>
 <script src="canvas.js"></script>
